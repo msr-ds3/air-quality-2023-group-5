@@ -1,0 +1,96 @@
+---
+title: "Air Quality"
+author: "Sara Goldberger"
+date: "2023-06-21"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(scales)
+theme_set(theme_bw())
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Description
+
+The goal of this document is to recreate the figure below. ![](fig1.jpg)
+
+```{r load-data}
+city <- read_csv(gzfile('city_day_agg_cleaned.csv.gz'))
+country <- read_csv(gzfile('country_day_agg_cleaned.csv.gz'))
+
+city['parameter'] <- as.factor(city$parameter)
+city['city_id'] <- as.factor(city$city_id)
+country['parameter'] <- as.factor(country$parameter)
+summary(city)
+summary(country)
+```
+
+Fig 1C Inset
+
+```{r fig-1C-inset}
+city_density <- city %>%
+  filter(month(date) %in% c(1, 2, 3, 4) | (month(date) == 5 & day(date) <= 15)) %>% 
+  mutate(condition = as.factor(ifelse(year(date) == 2020, '2020', 'baseline'))) %>% 
+  filter(parameter == 'pm25') %>% 
+  group_by(condition, city_id) %>% 
+  summarise(mean_per_city = mean(mean))
+
+median_2020 <- city_density %>% filter(condition == '2020')
+median_2020 <- median(median_2020$mean_per_city)
+median_baseline <- city_density %>% filter(condition == 'baseline')
+median_baseline <- median(median_baseline$mean_per_city)
+  
+city_density%>% 
+  ggplot(aes(x = mean_per_city, color = condition, fill = condition)) +
+  geom_density(alpha = 0.5) +
+  geom_vline(xintercept = median_2020, color = 'coral') +
+  geom_vline(xintercept = median_baseline, color = 'turquoise') +
+  labs(x = 'PM2.5', y = 'Data density', color = '', fill = '')
+```
+
+Fig 1C Map
+
+```{r fig-1C-map}
+world_map <- map_data("world")
+
+ggplot() +
+  geom_polygon(data = world_map, aes(long, lat, group = group), fill = "white", color = "black", lwd = 0.25) +
+  coord_quickmap() +
+  geom_point()
+```
+
+Fig 3b Relative change
+
+```{r fig-3B-relative-change}
+
+```
+
+```{r junk, include=FALSE}
+# JUNK CODE 
+
+city_3yr %>% 
+  ggplot(aes(x = mean_per_city)) +
+  geom_density() +
+  geom_vline(xintercept = median(city_3yr$mean_per_city))
+
+
+city_2020 <- city %>% 
+  filter(year(date) == 2020, parameter == 'pm25') %>% 
+  group_by(city_id) %>% 
+  summarise(mean_per_city = mean(mean)) 
+
+city_3yr <- city %>% 
+  filter(year(date) %in% c("2017", "2018", "2019"), parameter == 'pm25') %>% 
+  group_by(city_id) %>% 
+  summarise(mean_per_city = mean(mean)) 
+
+city_3yr %>% 
+  ggplot(aes(x = mean_per_city)) +
+  geom_density(alpha = 0.5, fill = 'turquoise') +
+  geom_vline(xintercept = median(city_3yr$mean_per_city), color = 'turquoise')
+
+city_join <- full_join(city_2020, city_3yr, by='city_id')
+city_join
+```
