@@ -8,7 +8,10 @@ output: pdf_document
 ```{r setup, include=FALSE}
 library(tidyverse)
 library(scales)
+library(modelr)
+
 theme_set(theme_bw())
+
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
@@ -19,9 +22,12 @@ The goal of this document is to recreate the figure below. ![](fig1.jpg)
 ```{r load-data}
 city <- read_csv(gzfile('city_day_agg_cleaned.csv.gz'))
 country <- read_csv(gzfile('country_day_agg_cleaned.csv.gz'))
+coords <- read_csv('openaq_cities.csv')
+
+# Join city and coords data
+city_coords <- left_join(city, coords, by=c('countryCode', 'city_id'))
 
 city['parameter'] <- as.factor(city$parameter)
-city['city_id'] <- as.factor(city$city_id)
 country['parameter'] <- as.factor(country$parameter)
 summary(city)
 summary(country)
@@ -30,41 +36,98 @@ summary(country)
 Fig 1C Inset
 
 ```{r fig-1C-inset}
-city_density <- city %>%
-  filter(month(date) %in% c(1, 2, 3, 4) | (month(date) == 5 & day(date) <= 15)) %>% 
-  mutate(condition = as.factor(ifelse(year(date) == 2020, '2020', 'baseline'))) %>% 
+city_condition <- city_coords %>%
   filter(parameter == 'pm25') %>% 
-  group_by(condition, city_id) %>% 
+  filter(month(date) %in% c(1, 2, 3, 4) | (month(date) == 5 & day(date) <= 15)) %>% 
+  mutate(condition = as.factor(ifelse(year(date) == 2020, '2020', 'baseline'))) 
+
+city_density <- city_condition %>%
+  group_by(condition, countryCode, city_id, Lon, Lat) %>% 
   summarise(mean_per_city = mean(mean))
 
-median_2020 <- city_density %>% filter(condition == '2020')
-median_2020 <- median(median_2020$mean_per_city)
-median_baseline <- city_density %>% filter(condition == 'baseline')
-median_baseline <- median(median_baseline$mean_per_city)
+mean_2020 <- city_density %>% filter(condition == '2020')
+mean_2020 <- mean(mean_2020$mean_per_city)
+mean_baseline <- city_density %>% filter(condition == 'baseline')
+mean_baseline <- mean(mean_baseline$mean_per_city)
   
-city_density%>% 
+city_density %>% 
   ggplot(aes(x = mean_per_city, color = condition, fill = condition)) +
   geom_density(alpha = 0.5) +
-  geom_vline(xintercept = median_2020, color = 'coral') +
-  geom_vline(xintercept = median_baseline, color = 'turquoise') +
+  geom_vline(xintercept = mean_2020, color = 'coral') +
+  geom_vline(xintercept = mean_baseline, color = 'turquoise') +
+  coord_cartesian(xlim = c(0, 120)) +
   labs(x = 'PM2.5', y = 'Data density', color = '', fill = '')
 ```
 
 Fig 1C Map
 
 ```{r fig-1C-map}
-world_map <- map_data("world")
+city_wider <- pivot_wider(city_density, names_from = condition, values_from = mean_per_city)
+colnames(city_wider) <- c('countryCode', 'city_id', 'long', 'lat', 'mean_baseline', 'mean_2020')
+city_2020_deviation <- city_wider %>%
+  mutate(deviation = ((mean_2020 - mean_baseline)/mean_baseline)*100) %>% 
+  filter(deviation >= -30 & deviation <= 30)
 
+world_map <- map_data("world")
 ggplot() +
   geom_polygon(data = world_map, aes(long, lat, group = group), fill = "white", color = "black", lwd = 0.25) +
-  coord_quickmap() +
-  geom_point()
+  coord_cartesian(xlim = c(-115, 145), ylim = c(-55, 70)) +
+  geom_point(data = city_2020_deviation, aes(long, lat, color = deviation), pch = 1) +
+  scale_color_gradientn(colors = c('purple4', 'white', 'darkorange2'), values = c(0, 1)) +
+  labs(color = 'PM2.5 (%)')
 ```
+
+
+Compare to the original figure
+
+![](fig1.jpg)
 
 Fig 3b Relative change
 
 ```{r fig-3B-relative-change}
+city_baseline <- city_condition %>% 
+  filter(condition == 'baseline') %>%  
+  filter(country == 'US' | country == 'CH') %>% 
+  mutate(month = month(date, label=T), weekday = as.factor(weekdays(date, abbreviate=T))) %>% 
+  mutate(is_weekday = !(weekday == 'Sun'| weekday == 'Sat'))
 
+model <- lm(mean ~ month + is_weekday, data = city_baseline)
+
+city_2020 <- city_condition %>% 
+  filter(condition == '2020') %>%  
+  filter(country == 'US' | country == 'CH') %>% 
+  mutate(month = month(date, label=T), weekday = as.factor(weekdays(date, abbreviate=T))) %>% 
+  mutate(is_weekday = !(weekday == 'Sun'| weekday == 'Sat')) %>% 
+  add_predictions(model)
+
+relchange_df <- city_2020  %>%
+  mutate(dev = (mean-pred)/mean*100) %>% 
+  group_by(country) %>% 
+  summarise(relchange = mean(dev))
+
+relchange_df2 <- city_2020 %>% 
+  group_by(country) %>% 
+  summarise(obs_mean = mean(mean), pred_mean = mean(pred)) %>%
+  group_by(country) %>% 
+  summarise(relchange = (obs_mean-pred_mean)/obs_mean*100)
+
+city_2020_US <- filter(city_2020, country == 'US')
+pred_US <- predict(model, city_2020_US, se.fit=TRUE)
+se_US <- mean(pred_US$se.fit)*100
+relchange_US <- filter(relchange_df2, country == 'US')$relchange
+
+city_2020_CH <- filter(city_2020, country == 'CH')
+pred_CH <- predict(model, city_2020_CH, se.fit=TRUE)
+se_CH <- mean(pred_CH$se.fit)*100
+relchange_CH <- filter(relchange_df2, country == 'CH')$relchange
+
+ggplot() +
+  geom_point(data = relchange_df2, aes(x = relchange, y = country, color = relchange)) +
+  geom_vline(xintercept = 0, linetype = 'dashed') +
+  scale_color_gradientn(colors = c('purple4', 'white', 'darkorange2'), values = c(0, 1)) +
+  coord_cartesian(xlim = c(-80, 80)) +
+  geom_errorbarh(aes(xmin = relchange_CH-se_CH, xmax = relchange_CH+se_CH, y = 1), color = 'darkorange2')+
+  geom_errorbarh(aes(xmin = relchange_US-se_US, xmax = relchange_US+se_US, y = 2), color = 'purple4')
 ```
 
 ```{r junk, include=FALSE}
@@ -93,4 +156,44 @@ city_3yr %>%
 
 city_join <- full_join(city_2020, city_3yr, by='city_id')
 city_join
+
+city_density <- city_condition %>% 
+  group_by(year(date)) %>% 
+  mutate(mean_year = mean(mean)) %>% 
+  ungroup() %>% 
+  group_by(countryCode, city_id, Lon, Lat, condition) %>% 
+  summarise(mean_per_city = ifelse(condition == 'baseline', mean(mean_year), mean_year))
+
+country_condition <- country %>%
+  filter(parameter == 'pm25') %>% 
+  filter(month(date) %in% c(1, 2, 3, 4) | (month(date) == 5 & day(date) <= 15)) %>% 
+  mutate(condition = as.factor(ifelse(year(date) == 2020, '2020', 'baseline')))
+
+country_density <- country_condition %>%
+  group_by(condition, countryCode) %>% 
+  summarise(mean_per_country = mean(mean))
+
+country_wider <- pivot_wider(country_density, names_from = condition, values_from = mean_per_country)
+colnames(country_wider) <- c('countryCode', 'mean_baseline', 'mean_2020')
+country_2020_deviation <- country_wider %>%
+  mutate(deviation = ((mean_2020 - mean_baseline)/mean_baseline)*100)
+
+colors()
+
+city_2020_US <- filter(city_2020, country == 'US')
+pred_US <- data.frame(predict(model, city_2020_US, se.fit=TRUE))
+pred_US_se <- mean(pred_US$se.fit)
+obs_US_se <- sd(city_2020_US$mean)/sqrt(length(city_2020_US$mean))
+#se_US <- mean(pred_US$se.fit)*100
+relchange_US <- filter(relchange_df2, country == 'US')$relchange
+se_US <- (obs_US_se-pred_US_se)/obs_US_se*100
+
+city_2020_CH <- filter(city_2020, country == 'CH')
+pred_CH <- data.frame(predict(model, city_2020_CH, se.fit=TRUE))
+pred_CH_mean <- mean(pred_CH$fit)
+obs_CH_mean <- mean(city_2020_CH$mean)
+#se_CH <- mean(pred_CH$se.fit)*100
+relchange_CH <- filter(relchange_df2, country == 'CH')$relchange
+se_CH <- (obs_CH_mean-pred_CH_mean)/obs_CH_mean*100
+
 ```
