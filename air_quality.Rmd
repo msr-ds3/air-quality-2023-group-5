@@ -17,7 +17,7 @@ knitr::opts_chunk$set(echo = TRUE)
 
 # Description
 
-The goal of this document is to investigate this [article](https://write.geeksforgeeks.org/%5D(https://www.pnas.org/doi/10.1073/pnas.2006853117#sec-1)https://www.pnas.org/doi/10.1073/pnas.2006853117#sec-1) and recreate some of its figures. In the article they mention, "The global response to the COVID-19 pandemic has resulted in unprecedented reductions in economic activity. We find that, after accounting for meteorological variations, lockdown events have reduced the population-weighted concentration of nitrogen dioxide and particulate matter levels by about 60% and 31% in 34 countries, with mixed effects on ozone. Reductions in transportation sector emissions are largely responsible for the NO2 anomalies" (1).
+The goal of this document is to investigate this [article](https://www.pnas.org/doi/10.1073/pnas.2006853117#sec-1) and recreate some of its figures. In the article, they mention, "The global response to the COVID-19 pandemic has resulted in unprecedented reductions in economic activity. We find that, after accounting for meteorological variations, lockdown events have reduced the population-weighted concentration of nitrogen dioxide and particulate matter levels by about 60% and 31% in 34 countries, with mixed effects on ozone. Reductions in transportation sector emissions are largely responsible for the NO2 anomalies" (1).
 
 # Loading the data
 
